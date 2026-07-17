@@ -1,0 +1,167 @@
+name: agent-tree-rl
+
+services:
+  agent-tree-rl:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+      args:
+        PYTHON_IMAGE: ${PYTHON_IMAGE:-python:3.12.10-slim-bookworm}
+    image: ${AGENT_TREE_RL_IMAGE:-agent-tree-rl:local}
+    init: true
+    restart: unless-stopped
+    read_only: true
+    user: "10001:10001"
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 256
+    cpus: ${APP_CPUS:-2.0}
+    mem_limit: ${APP_MEMORY:-1g}
+    # Leave the runtime time to close its socket/store after its own drain
+    # deadline before the container engine escalates to SIGKILL.
+    stop_grace_period: ${STOP_GRACE_PERIOD:-40s}
+    environment:
+      AGENT_TREE_RL_HOST: 0.0.0.0
+      AGENT_TREE_RL_PORT: 8081
+      AGENT_TREE_RL_DATA_DIR: /data
+      AGENT_TREE_RL_DATABASE: /data/agent-tree-rl.sqlite3
+      AGENT_TREE_RL_BENCHMARK_DIR: /data/benchmarks
+      AGENT_TREE_RL_BENCHMARK_FILE: /run/secrets/policy-benchmark.json
+      AGENT_TREE_RL_BENCHMARK_SIGNING_KEY_FILE: /run/secrets/benchmark-signing.key
+      AGENT_TREE_RL_LOG_FORMAT: json
+      AGENT_TREE_RL_LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      AGENT_TREE_RL_REQUIRE_AUTH: "true"
+      AGENT_TREE_RL_ALLOW_SAMPLE_BENCHMARK: "false"
+      AGENT_TREE_RL_MAX_REQUEST_BYTES: ${MAX_REQUEST_BYTES:-1048576}
+      AGENT_TREE_RL_MAX_WORKERS: ${MAX_WORKERS:-8}
+      AGENT_TREE_RL_MAX_OPERATIONAL_WORKERS: ${MAX_OPERATIONAL_WORKERS:-2}
+      AGENT_TREE_RL_SHUTDOWN_GRACE_SECONDS: ${SHUTDOWN_GRACE_SECONDS:-30}
+      AGENT_TREE_RL_SHUTDOWN_CANCEL_SECONDS: ${SHUTDOWN_CANCEL_SECONDS:-5}
+      AGENT_TREE_RL_DEFAULT_TENANT_BUDGET: ${DEFAULT_TENANT_BUDGET:-10000}
+      AGENT_TREE_RL_LEASE_SECONDS: ${LEASE_SECONDS:-60}
+      AGENT_TREE_RL_REQUIRE_SEPARATION_OF_DUTIES: "true"
+      AGENT_TREE_RL_HIDDEN_BENCHMARK_ATTEMPT_LIMIT: ${HIDDEN_BENCHMARK_ATTEMPT_LIMIT:-3}
+      AGENT_TREE_RL_MINIMUM_HIDDEN_BENCHMARK_SCORE_PPM: ${MINIMUM_HIDDEN_BENCHMARK_SCORE_PPM:-900000}
+      # Public evidence may execute only this narrow wrapper. The internal
+      # benchmark candidate has a separate, non-user-controlled allowlist.
+      AGENT_TREE_RL_ALLOWED_COMMANDS: ${EVIDENCE_ALLOWED_COMMANDS:-/app/agent_tree_rl/workers/evidence_probe.py}
+      AGENT_TREE_RL_ALLOWED_CWD_ROOTS: /data
+      AGENT_TREE_RL_RECEIPT_KEYS_FILE: /run/secrets/receipt-keys.json
+      AGENT_TREE_RL_ADMIN_TOKEN_FILE: /run/secrets/api-tokens.json
+      AGENT_TREE_RL_BACKUP_KEYS_FILE: /run/secrets/backup-keys.json
+    volumes:
+      - agent_tree_data:/data
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=64m,mode=1777
+    secrets:
+      - source: receipt_keys
+        target: receipt-keys.json
+        uid: "10001"
+        gid: "10001"
+        mode: 0400
+      - source: api_tokens
+        target: api-tokens.json
+        uid: "10001"
+        gid: "10001"
+        mode: 0400
+      - source: benchmark_signing_key
+        target: benchmark-signing.key
+        uid: "10001"
+        gid: "10001"
+        mode: 0400
+      - source: policy_benchmark
+        target: policy-benchmark.json
+        uid: "10001"
+        gid: "10001"
+        mode: 0400
+      - source: backup_keys
+        target: backup-keys.json
+        uid: "10001"
+        gid: "10001"
+        mode: 0400
+    expose:
+      - "8081"
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8081/readyz', timeout=2).read()"
+      interval: 15s
+      timeout: 3s
+      start_period: 10s
+      retries: 3
+    networks:
+      - backend
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "5"
+
+  caddy:
+    image: ${CADDY_IMAGE:-caddy:2.8.4-alpine}
+    restart: unless-stopped
+    user: "1000:1000"
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 128
+    cpus: ${PROXY_CPUS:-1.0}
+    mem_limit: ${PROXY_MEMORY:-256m}
+    stop_grace_period: 30s
+    environment:
+      UPSTREAM: agent-tree-rl:8081
+    depends_on:
+      agent-tree-rl:
+        condition: service_healthy
+    ports:
+      # Bind locally by default. Put an authenticated TLS ingress/load balancer
+      # in front, or explicitly change PUBLIC_BIND after threat review.
+      - "${PUBLIC_BIND:-127.0.0.1}:${PUBLIC_PORT:-8080}:8080"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=32m,mode=1777
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/healthz"]
+      interval: 15s
+      timeout: 3s
+      start_period: 10s
+      retries: 3
+    networks:
+      - edge
+      - backend
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "5"
+
+networks:
+  edge: {}
+  backend:
+    internal: true
+
+volumes:
+  agent_tree_data: {}
+  caddy_data: {}
+  caddy_config: {}
+
+secrets:
+  receipt_keys:
+    file: ${RECEIPT_KEYS_SOURCE:-./secrets/receipt-keys.json}
+  api_tokens:
+    file: ${API_TOKENS_SOURCE:-./secrets/api-tokens.json}
+  benchmark_signing_key:
+    file: ${BENCHMARK_SIGNING_KEY_SOURCE:-./secrets/benchmark-signing.key}
+  policy_benchmark:
+    file: ${POLICY_BENCHMARK_SOURCE:-./secrets/policy-benchmark.json}
+  backup_keys:
+    file: ${BACKUP_KEYS_SOURCE:-./secrets/backup-keys.json}

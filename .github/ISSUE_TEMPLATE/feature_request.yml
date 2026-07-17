@@ -1,0 +1,53 @@
+name: Feature request
+description: Propose a user outcome or product improvement.
+title: "[Feature]: "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Describe the user problem before the implementation. Keep private workloads,
+        benchmark answers, credentials, and tenant data out of public issues.
+
+  - type: checkboxes
+    id: preflight
+    attributes:
+      label: Preflight
+      options:
+        - label: I searched existing issues and documentation for this outcome.
+          required: true
+        - label: This request contains no private or sensitive data.
+          required: true
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: User problem
+      description: Who is blocked, what are they trying to do, and why is the current behavior insufficient?
+    validations:
+      required: true
+  - type: textarea
+    id: outcome
+    attributes:
+      label: Desired outcome
+      description: State observable behavior and the artifact or command that would prove it.
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed approach
+      description: Optional implementation direction, API shape, or compatibility notes.
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+
+  - type: textarea
+    id: safety
+    attributes:
+      label: Security, privacy, and operational impact
+      description: Note effects on trust boundaries, authorization, evidence, promotion, rollback, or resource limits.
+    validations:
+      required: true

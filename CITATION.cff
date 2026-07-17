@@ -1,0 +1,18 @@
+cff-version: 1.2.0
+message: "If you use Agent Tree RL in research or engineering work, cite this software."
+title: "Agent Tree RL"
+type: software
+version: 0.1.0
+date-released: 2026-07-17
+authors:
+  - family-names: Kamar
+    given-names: Mohamad
+license: MIT
+repository-code: "https://github.com/kalibraring/agent-tree-rl"
+url: "https://github.com/kalibraring/agent-tree-rl"
+keywords:
+  - multi-agent systems
+  - decision trees
+  - PUCT
+  - expert iteration
+  - reinforcement learning

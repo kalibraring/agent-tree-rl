@@ -1,0 +1,59 @@
+[build-system]
+requires = ["setuptools==80.9.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "agent-tree-rl"
+version = "0.1.0"
+description = "Governed tree search and offline policy promotion for agent decisions"
+readme = "README.md"
+requires-python = ">=3.11"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [
+  { name = "Mohamad Kamar" },
+]
+keywords = [
+  "agents",
+  "decision-trees",
+  "expert-iteration",
+  "multi-agent",
+  "puct",
+  "reinforcement-learning",
+]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Environment :: Console",
+  "Intended Audience :: Developers",
+  "Operating System :: POSIX",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Topic :: Software Development :: Libraries :: Application Frameworks",
+]
+dependencies = []
+
+[project.optional-dependencies]
+dev = [
+  "build==1.3.0",
+  "ruff==0.15.20",
+  "setuptools==80.9.0",
+  "wheel==0.45.1",
+]
+
+[project.urls]
+Homepage = "https://github.com/kalibraring/agent-tree-rl"
+Documentation = "https://github.com/kalibraring/agent-tree-rl/tree/main/docs"
+Issues = "https://github.com/kalibraring/agent-tree-rl/issues"
+Source = "https://github.com/kalibraring/agent-tree-rl"
+
+[project.scripts]
+agent-tree-rl = "agent_tree_rl.cli:main"
+agent-tree-rl-evidence-probe = "agent_tree_rl.workers.evidence_probe:main"
+
+[tool.setuptools]
+packages = ["agent_tree_rl", "agent_tree_rl.fixtures", "agent_tree_rl.workers"]
+
+[tool.setuptools.package-data]
+"agent_tree_rl.fixtures" = ["*.json"]

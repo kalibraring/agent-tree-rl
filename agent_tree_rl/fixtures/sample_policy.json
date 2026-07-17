@@ -1,0 +1,30 @@
+{
+  "schema_version": 1,
+  "benchmark_id": "private-policy-routing-v1",
+  "cases": [
+    {
+      "id": "low-budget-seed-7",
+      "input": {"operation": "policy-search", "seed": 7, "simulations": 8},
+      "expected": {"trajectory": ["S1", "Q1", "A1", "D1"], "feasible": true, "abstained": false},
+      "weight_micros": 3000000
+    },
+    {
+      "id": "low-budget-seed-17",
+      "input": {"operation": "policy-search", "seed": 17, "simulations": 8},
+      "expected": {"trajectory": ["S1", "Q1", "A1", "D1"], "feasible": true, "abstained": false},
+      "weight_micros": 3000000
+    },
+    {
+      "id": "medium-budget-seed-29",
+      "input": {"operation": "policy-search", "seed": 29, "simulations": 16},
+      "expected": {"trajectory": ["S1", "Q1", "A1", "D1"], "feasible": true, "abstained": false},
+      "weight_micros": 2000000
+    },
+    {
+      "id": "medium-budget-seed-43",
+      "input": {"operation": "policy-search", "seed": 43, "simulations": 32},
+      "expected": {"trajectory": ["S1", "Q1", "A1", "D1"], "feasible": true, "abstained": false},
+      "weight_micros": 2000000
+    }
+  ]
+}

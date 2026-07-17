@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Questions and setup help
+    url: https://github.com/kalibraring/agent-tree-rl/discussions/categories/q-a
+    about: Ask usage and design questions in GitHub Discussions.
+  - name: Security vulnerability
+    url: https://github.com/kalibraring/agent-tree-rl/security/policy
+    about: Report vulnerabilities privately through GitHub Security Advisories.

@@ -1,0 +1,80 @@
+name: Bug report
+description: Report reproducible incorrect behavior in Agent Tree RL.
+title: "[Bug]: "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting a defect. Do not include credentials, private benchmark cases,
+        tenant data, or unredacted logs. Report security vulnerabilities through the
+        repository Security tab instead of a public issue.
+
+  - type: checkboxes
+    id: preflight
+    attributes:
+      label: Preflight
+      options:
+        - label: I searched existing issues for the same behavior.
+          required: true
+        - label: I removed credentials, private data, and private benchmark material.
+          required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Version or commit
+      description: Use a release tag, package version, or full commit SHA.
+      placeholder: v0.1.0
+    validations:
+      required: true
+
+  - type: dropdown
+    id: installation
+    attributes:
+      label: Installation
+      options:
+        - Wheel or source distribution
+        - Source checkout
+        - Container
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Include OS, Python version, deployment mode, and relevant non-secret configuration.
+      placeholder: macOS 15, Python 3.12, source checkout, single-node SQLite
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Minimal reproduction
+      description: Give the smallest deterministic sequence that demonstrates the defect.
+      render: shell
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior and proof
+      description: Include redacted output, failed invariant, or artifact name. Do not paste secrets.
+    validations:
+      required: true
+
+  - type: textarea
+    id: additional
+    attributes:
+      label: Additional context
+      description: Add relevant links or sanitized diagnostic context.

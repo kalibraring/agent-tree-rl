@@ -1,0 +1,31 @@
+{
+  "schema_version": 1,
+  "benchmark_id": "private-agent-routing-v1",
+  "cases": [
+    {
+      "id": "weighted-sum",
+      "input": {"operation": "sum", "values": [2, 7, 11]},
+      "expected": 20,
+      "weight_micros": 2000000
+    },
+    {
+      "id": "stable-choice",
+      "input": {
+        "operation": "choose",
+        "options": [
+          {"id": "fast", "score": 72},
+          {"id": "proven", "score": 91},
+          {"id": "novel", "score": 63}
+        ]
+      },
+      "expected": {"id": "proven", "score": 91},
+      "weight_micros": 5000000
+    },
+    {
+      "id": "safe-abstention",
+      "input": {"operation": "threshold", "confidence_ppm": 310000, "minimum_ppm": 800000},
+      "expected": {"decision": "abstain"},
+      "weight_micros": 3000000
+    }
+  ]
+}
