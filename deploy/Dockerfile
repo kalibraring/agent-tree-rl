@@ -9,7 +9,6 @@ FROM ${PYTHON_IMAGE} AS builder
 WORKDIR /src
 COPY agent_tree_rl ./agent_tree_rl
 RUN chmod 0555 /src/agent_tree_rl/workers/evidence_probe.py
-RUN python -m compileall -q /src
 
 FROM ${PYTHON_IMAGE} AS runtime
 

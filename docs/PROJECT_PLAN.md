@@ -72,8 +72,9 @@ they do not fork controller logic.
 - [x] Wheel installs and runs in a clean environment.
 - [x] Source archive installs and runs in a clean environment.
 - [ ] Final Git index and complete history pass a real secret scanner.
-- [ ] Git archive, wheel, source archive, and container layers contain no private
-  paths, emails, credentials, generated state, or hidden benchmark material.
+- [ ] Git archive, wheel, source archive, and application files in the container
+  image contain no private paths, emails, credentials, generated state, or
+  hidden benchmark material.
 - [ ] A fresh public clone passes the one-minute demo and full release preflight.
 - [ ] One external user completes the quickstart without maintainer assistance.
 

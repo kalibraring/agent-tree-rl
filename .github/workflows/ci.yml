@@ -74,6 +74,16 @@ jobs:
           --entrypoint /usr/bin/test
           agent-tree-rl:ci -r /app/LICENSE
 
+      - name: Inspect public application files in the image
+        run: |
+          container_id="$(docker create agent-tree-rl:ci)"
+          trap 'docker rm -f "$container_id" >/dev/null 2>&1 || true' EXIT
+          mkdir -p /tmp/agent-tree-rl-image-app
+          docker cp "$container_id":/app/. /tmp/agent-tree-rl-image-app
+          python3 scripts/check_public_release.py \
+            --root /tmp/agent-tree-rl-image-app \
+            --skip-git-history
+
       - name: Run the allowlisted probe inside the image
         run: >-
           docker run --rm
