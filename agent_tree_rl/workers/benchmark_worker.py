@@ -68,11 +68,32 @@ def _resolve_executable(raw: str) -> Path:
     path = Path(raw).expanduser()
     if not path.is_absolute():
         raise BenchmarkSecurityError("candidate executable allowlist must be absolute")
-    before = os.lstat(path)
-    if stat.S_ISLNK(before.st_mode):
+    try:
+        before = os.lstat(path)
+        resolved = path.resolve(strict=True)
+        target = resolved.stat()
+        current = os.lstat(path)
+    except OSError as exc:
+        raise BenchmarkSecurityError(
+            "candidate executable allowlist entry cannot be inspected"
+        ) from exc
+    if stat.S_ISLNK(before.st_mode) or stat.S_ISLNK(current.st_mode):
         raise BenchmarkSecurityError("candidate executable allowlist rejects symlinks")
-    resolved = path.resolve(strict=True)
-    if not resolved.is_file() or not os.access(resolved, os.X_OK):
+    if not stat.S_ISREG(before.st_mode) or not stat.S_ISREG(target.st_mode):
+        raise BenchmarkSecurityError(
+            "candidate executable allowlist entry must be a regular file"
+        )
+    if (before.st_dev, before.st_ino) != (current.st_dev, current.st_ino) or (
+        before.st_dev,
+        before.st_ino,
+    ) != (
+        target.st_dev,
+        target.st_ino,
+    ):
+        raise BenchmarkSecurityError(
+            "candidate executable allowlist entry changed while resolving"
+        )
+    if not os.access(resolved, os.X_OK):
         raise BenchmarkSecurityError("candidate executable allowlist entry is not executable")
     return resolved
 

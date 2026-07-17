@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import argparse
+import hashlib
 import json
 import os
 from pathlib import Path
+import stat
 import sys
 import tempfile
 import unittest
@@ -14,9 +17,11 @@ from agent_tree_rl.config import (
     Settings,
     _secure_json,
 )
-from agent_tree_rl.cli import build_runtime
+from agent_tree_rl import cli as cli_module
+from agent_tree_rl import secrets as secrets_module
+from agent_tree_rl.cli import build_runtime, command_init
 from agent_tree_rl.evidence import PolicyViolation
-from agent_tree_rl.secrets import load_keyring
+from agent_tree_rl.secrets import initialize_keyring, initialize_secrets, load_keyring
 
 
 class SecureSecretFileTests(unittest.TestCase):
@@ -115,6 +120,220 @@ class SecureSecretFileTests(unittest.TestCase):
 
             self.assertEqual("key-a", active)
             self.assertGreaterEqual(len(keys[active]), 32)
+
+    def test_bootstrap_tokens_are_written_privately_and_never_to_hash_file(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            keyring = root / "receipt-keys.json"
+            token_hashes = root / "api-tokens.json"
+            plaintext = root / "bootstrap-tokens.json"
+
+            initialize_secrets(
+                keyring_path=keyring,
+                token_path=token_hashes,
+                plaintext_token_path=plaintext,
+                tenant_id="tenant-a",
+            )
+
+            for path in (keyring, token_hashes, plaintext):
+                self.assertEqual(0o600, stat.S_IMODE(path.stat().st_mode))
+            bootstrap = json.loads(plaintext.read_text(encoding="utf-8"))
+            hashed = json.loads(token_hashes.read_text(encoding="utf-8"))
+            for token in bootstrap["api_tokens"].values():
+                self.assertNotIn(token, token_hashes.read_text(encoding="utf-8"))
+                self.assertIn(hashlib.sha256(token.encode()).hexdigest(), hashed)
+
+    def test_bootstrap_refuses_existing_output_before_creating_other_secrets(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            keyring = root / "receipt-keys.json"
+            token_hashes = root / "api-tokens.json"
+            plaintext = root / "bootstrap-tokens.json"
+            plaintext.write_text("keep", encoding="utf-8")
+
+            with self.assertRaisesRegex(FileExistsError, "overwrite"):
+                initialize_secrets(
+                    keyring_path=keyring,
+                    token_path=token_hashes,
+                    plaintext_token_path=plaintext,
+                )
+
+            self.assertEqual("keep", plaintext.read_text(encoding="utf-8"))
+            self.assertFalse(keyring.exists())
+            self.assertFalse(token_hashes.exists())
+
+    def test_bootstrap_interrupt_removes_temporary_and_published_files(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            with mock.patch(
+                "agent_tree_rl.secrets.os.link",
+                side_effect=KeyboardInterrupt,
+            ):
+                with self.assertRaises(KeyboardInterrupt):
+                    initialize_secrets(
+                        keyring_path=root / "receipt-keys.json",
+                        token_path=root / "api-tokens.json",
+                        plaintext_token_path=root / "bootstrap-tokens.json",
+                    )
+
+            self.assertEqual([], list(root.iterdir()))
+
+    def test_link_then_interrupt_removes_the_published_secret_inode(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            real_link = os.link
+
+            def link_then_interrupt(source: str, destination: Path) -> None:
+                real_link(source, destination)
+                raise KeyboardInterrupt
+
+            with mock.patch(
+                "agent_tree_rl.secrets.os.link",
+                side_effect=link_then_interrupt,
+            ):
+                with self.assertRaises(KeyboardInterrupt):
+                    initialize_keyring(root / "receipt-keys.json")
+
+            self.assertEqual([], list(root.iterdir()))
+
+    def test_private_write_cleanup_preserves_a_substituted_path(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "secret.key"
+            real_fsync = os.fsync
+
+            def substitute_then_fail(descriptor: int) -> None:
+                real_fsync(descriptor)
+                path.unlink()
+                path.write_text("replacement", encoding="utf-8")
+                raise OSError("simulated fsync failure")
+
+            with mock.patch(
+                "agent_tree_rl.cli.os.fsync",
+                side_effect=substitute_then_fail,
+            ):
+                with self.assertRaisesRegex(OSError, "simulated"):
+                    cli_module._write_private_exclusive(path, b"sensitive")
+
+            self.assertEqual("replacement", path.read_text(encoding="utf-8"))
+
+    def test_bootstrap_cleanup_preserves_a_substituted_path(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            keyring = root / "receipt-keys.json"
+            token_hashes = root / "api-tokens.json"
+            plaintext = root / "bootstrap-tokens.json"
+            real_atomic = secrets_module._atomic_private_json
+
+            def substitute_then_fail(
+                path: Path,
+                payload: dict[str, object],
+                *,
+                replace: bool = True,
+                creation_log: list[tuple[Path, tuple[int, int]]] | None = None,
+            ) -> tuple[int, int]:
+                if path == plaintext:
+                    keyring.unlink()
+                    keyring.write_text("replacement", encoding="utf-8")
+                    raise OSError("simulated plaintext write failure")
+                return real_atomic(
+                    path,
+                    payload,
+                    replace=replace,
+                    creation_log=creation_log,
+                )
+
+            with mock.patch(
+                "agent_tree_rl.secrets._atomic_private_json",
+                side_effect=substitute_then_fail,
+            ):
+                with self.assertRaisesRegex(OSError, "simulated"):
+                    initialize_secrets(
+                        keyring_path=keyring,
+                        token_path=token_hashes,
+                        plaintext_token_path=plaintext,
+                    )
+
+            self.assertEqual("replacement", keyring.read_text(encoding="utf-8"))
+            self.assertFalse(token_hashes.exists())
+            self.assertFalse(plaintext.exists())
+
+    def test_init_rejects_colliding_paths_before_writing_secrets(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory) / "data"
+            with self.assertRaisesRegex(ValueError, "distinct"):
+                command_init(
+                    argparse.Namespace(
+                        data_dir=str(root),
+                        tenant="tenant-a",
+                        token_output=str(root / "backup-keys.json"),
+                    )
+                )
+
+            self.assertEqual([], list(root.iterdir()))
+
+    def test_init_rolls_back_files_when_late_bootstrap_write_fails(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory) / "data"
+            real_write = cli_module._write_private_exclusive
+
+            def fail_sample(
+                path: Path,
+                data: bytes,
+                *,
+                creation_log: list[tuple[Path, tuple[int, int]]] | None = None,
+            ) -> None:
+                if path.name == "policy.json":
+                    raise OSError("simulated sample write failure")
+                real_write(path, data, creation_log=creation_log)
+
+            with mock.patch(
+                "agent_tree_rl.cli._write_private_exclusive",
+                side_effect=fail_sample,
+            ):
+                with self.assertRaisesRegex(OSError, "simulated"):
+                    command_init(
+                        argparse.Namespace(
+                            data_dir=str(root),
+                            tenant="tenant-a",
+                            token_output=None,
+                        )
+                    )
+
+            self.assertEqual([], list(root.iterdir()))
+
+    def test_init_rolls_back_files_when_interrupted_late(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory) / "data"
+            real_write = cli_module._write_private_exclusive
+
+            def interrupt_sample(
+                path: Path,
+                data: bytes,
+                *,
+                creation_log: list[tuple[Path, tuple[int, int]]] | None = None,
+            ) -> None:
+                if path.name == "policy.json":
+                    raise KeyboardInterrupt
+                real_write(path, data, creation_log=creation_log)
+
+            with mock.patch(
+                "agent_tree_rl.cli._write_private_exclusive",
+                side_effect=interrupt_sample,
+            ):
+                with self.assertRaises(KeyboardInterrupt):
+                    command_init(
+                        argparse.Namespace(
+                            data_dir=str(root),
+                            tenant="tenant-a",
+                            token_output=None,
+                        )
+                    )
+
+            self.assertEqual([], list(root.iterdir()))
 
     def test_runtime_rejects_symlinked_benchmark_signing_key(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

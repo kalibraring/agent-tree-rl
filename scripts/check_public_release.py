@@ -54,6 +54,7 @@ FORBIDDEN_EXACT_FILES = {
     "api-tokens.json",
     "backup-keys.json",
     "benchmark-signing.key",
+    "bootstrap-tokens.json",
     "policy-benchmark.json",
     "receipt-keys.json",
 }
@@ -79,19 +80,6 @@ FORBIDDEN_SUFFIXES = {
     ".zip",
 }
 ARCHIVE_SUFFIXES = (".tar.gz", ".tar.bz2", ".tar.xz")
-BINARY_SUFFIXES = {
-    ".gif",
-    ".ico",
-    ".jpeg",
-    ".jpg",
-    ".mp3",
-    ".mp4",
-    ".pdf",
-    ".png",
-    ".wasm",
-    ".webp",
-}
-
 EMAIL_RE = re.compile(
     r"(?<![A-Za-z0-9._%+-])"
     r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}"
@@ -182,6 +170,13 @@ CREDENTIAL_RULES = (
     ),
 )
 
+BOOTSTRAP_TOKEN_JSON_RE = re.compile(
+    r'"api_tokens"\s*:\s*\{.{0,8192}?'
+    r'"(?:agent|operator|promoter|auditor)"\s*:\s*'
+    r'"[A-Za-z0-9_-]{60,}"',
+    re.DOTALL,
+)
+
 INLINE_MARKDOWN_LINK_RE = re.compile(
     r"!?\[[^\]]*\]\(\s*(?:<([^>]+)>|([^\s)]+))"
 )
@@ -250,15 +245,14 @@ def _path_findings(path: Path, root: Path) -> list[Finding]:
 
 
 def _read_text(path: Path) -> str | None:
-    if path.suffix.lower() in BINARY_SUFFIXES:
+    with path.open("rb") as handle:
+        data = handle.read(MAX_PUBLIC_FILE_BYTES + 1)
+    if len(data) > MAX_PUBLIC_FILE_BYTES:
         return None
-    data = path.read_bytes()
-    if b"\x00" in data[:8192]:
-        return None
-    try:
-        return data.decode("utf-8")
-    except UnicodeDecodeError:
-        return None
+    # Decode every bounded file regardless of its suffix. This deliberately
+    # inspects ASCII/UTF-8 strings embedded in binary-looking files so a custom
+    # bootstrap-token destination cannot evade the scanner by being named .png.
+    return data.decode("utf-8", errors="ignore")
 
 
 def _content_findings(
@@ -269,6 +263,16 @@ def _content_findings(
 ) -> list[Finding]:
     rel = _relative(path, root)
     findings: list[Finding] = []
+    bootstrap_token = BOOTSTRAP_TOKEN_JSON_RE.search(text)
+    if bootstrap_token is not None:
+        findings.append(
+            Finding(
+                rel,
+                text.count("\n", 0, bootstrap_token.start()) + 1,
+                "bootstrap-bearer-token",
+                "contains plaintext Agent Tree RL bootstrap credentials",
+            )
+        )
     for line_number, line in enumerate(text.splitlines(), start=1):
         for rule, pattern, message in MACHINE_PATH_RULES:
             if pattern.search(line):

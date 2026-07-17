@@ -37,6 +37,10 @@ All notable changes are documented here. The project follows
   ambiguous crash keys as non-expiring tombstones.
 - Exact service-owned process-group registration and deadline cancellation for
   evidence and nested hidden-benchmark workers before runtime-lock release.
+- One-time bootstrap bearer tokens are written to an exclusive mode-`0600` file
+  and never emitted to stdout; initialization rolls back partial secret state.
+- Digest-pinned container base, hash-locked CI tooling, least-privilege release
+  jobs, SPDX SBOM, archive checksums, and signed build-provenance attestations.
 
 [Unreleased]: https://github.com/kalibraring/agent-tree-rl/compare/v0.1.0...HEAD
 [0.1.0]: https://github.com/kalibraring/agent-tree-rl/releases/tag/v0.1.0

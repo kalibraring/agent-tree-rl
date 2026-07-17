@@ -49,7 +49,7 @@ are separate trust boundaries.
 | Audit tampering | Delete adverse outcome | Current reference: append-only DB triggers and per-payload hashes. Production: previous-hash linkage, remote immutable export, restricted DB access, and backup verification. | Same-host root can alter local DB and logs. Remote WORM sink is required for strong nonrepudiation. |
 | Secret leakage | Token in logs or image | File secrets; digest-only API token store; redaction; `.dockerignore`; image/SBOM scans | Request bodies/tool output may contain secrets. Apply content filters and restricted log access. |
 | Malicious backup/restore | Restore altered champion pointer | Encrypt/sign backup manifest; checksums; isolated credentials; restore drill; post-restore invariants | Backup operator is privileged. Separate duties and log restores. |
-| Supply-chain compromise | Poisoned base image/package | Digest pinning; locked offline dependencies; SBOM/provenance/signature; scan; reproducible build | This repo's default image tag is usable, not immutable. Release pipeline must override it with an approved digest. |
+| Supply-chain compromise | Poisoned base image/package | Digest-pinned base image; hash-locked CI build dependencies; SBOM/provenance/signature; scan; reproducible build | Maintainers must deliberately refresh the pinned digest and hashes, review upstream changes, and prove the rebuilt image. |
 | Proxy spoofing | Client sends fake forwarding headers | App never consumes forwarding headers; ingress overwrites them and supplies transport policy | Adding forwarding-header trust without an explicit proxy allowlist is prohibited. |
 | Availability failure | DB/disk/process outage | Health vs readiness; disk alerts; bounded restart; graceful stop; backup/restore; capacity headroom | Single-node reference has an outage during host failure. Meet stricter SLOs with tested HA datastore design. |
 
@@ -76,12 +76,34 @@ cross-tenant tests pass. Regulated, mutually hostile, or cryptographically
 isolated tenants get separate deployments, stores, worker pools, keys, backup
 paths, and observability sinks.
 
+## Reference worker trust-domain decision
+
+The bundled controller, benchmark client, and local worker share one
+administrative trust domain. Worker CLI paths come only from privileged startup
+configuration or controller-derived content-addressed artifacts; they are not
+accepted from HTTP request fields. The implementation still validates exact
+executables, working-root containment, private regular files, byte caps,
+symlinks, inode stability, and artifact digests.
+
+That local arrangement does **not** prove independence from a compromised
+controller. A production independence claim requires a separately governed
+worker whose immutable configuration owns the executable allowlist, working
+roots, benchmark path, signing-key path, and candidate-ID-to-artifact mapping.
+Its job protocol should accept only a candidate ID/digest, nonce, and bounded
+input—not controller-selected filesystem paths. Candidate execution must run in
+a separate sandbox without benchmark or signing-key mounts, and only the trusted
+worker may sign the validated aggregate.
+
 ## Abuse and privacy controls
 
 - Set per-principal and per-tenant request, concurrency, tool, token, storage,
   and spend limits; enforce at ingress and transactionally in the service.
 - Reject secrets and sensitive data from model features unless explicitly
   allowed. Redact logs at source and set short, documented retention.
+- Local `init` writes one-time bootstrap tokens to an exclusive mode-`0600`
+  file instead of stdout. Import it into a secret manager and securely delete it
+  immediately; production deployments must provision workload credentials
+  externally.
 - Never label metrics with prompts, task IDs, raw tenant IDs, paths, model
   content hashes, or unbounded error strings.
 - Provide tenant export/deletion workflows that preserve only legally required,

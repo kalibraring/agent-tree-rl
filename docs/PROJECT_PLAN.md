@@ -58,11 +58,14 @@ they do not fork controller logic.
 
 - [ ] Protect `main`; require CI, review, resolved conversations, and linear
   history.
-- [ ] Enable private vulnerability reporting and GitHub Discussions.
-- [ ] Enable GitHub secret scanning, push protection, Dependabot alerts, and
-  dependency review where the plan permits.
-- [ ] Add OpenSSF Scorecard and CodeQL after the public repository exists.
-- [ ] Produce SBOM, artifact attestations, checksums, and signed releases.
+- [x] Enable private vulnerability reporting and GitHub Discussions.
+- [x] Enable GitHub secret scanning, push protection, Dependabot alerts, and
+  automated security updates.
+- [x] Add OpenSSF Scorecard and CodeQL after the public repository exists.
+- [x] Generate an SPDX SBOM, checksums, and artifact provenance in the release
+  workflow.
+- [ ] Publish the first immutable release and verify every downloaded asset and
+  attestation independently.
 - [ ] Publish a supported-version and release cadence decision after external use.
 - [ ] Recruit a second maintainer or document an archive/succession trigger.
 
@@ -71,7 +74,8 @@ they do not fork controller logic.
 - [x] Exact source tests and controller acceptance proof pass.
 - [x] Wheel installs and runs in a clean environment.
 - [x] Source archive installs and runs in a clean environment.
-- [ ] Final Git index and complete history pass a real secret scanner.
+- [x] Working tree and complete history pass Gitleaks plus the project scanner;
+  repeat on the final staged index and public clone.
 - [ ] Git archive, wheel, source archive, and application files in the container
   image contain no private paths, emails, credentials, generated state, or
   hidden benchmark material.

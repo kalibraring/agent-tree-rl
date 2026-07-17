@@ -11,7 +11,6 @@ import logging
 import os
 from pathlib import Path
 import signal
-import shutil
 import stat
 import sys
 from threading import Thread
@@ -34,7 +33,15 @@ from .hidden_benchmark import (
 from .logging_utils import configure_logging
 from .metrics import Metrics
 from .process_registry import ActiveProcessRegistry
-from .secrets import initialize_keyring, initialize_secrets, load_keyring, rotate_keyring
+from .secrets import (
+    CreatedFile,
+    FileIdentity,
+    initialize_keyring,
+    initialize_secrets,
+    load_keyring,
+    rotate_keyring,
+    unlink_created_file,
+)
 from .store import SQLiteStore
 
 
@@ -123,36 +130,123 @@ def build_runtime(settings: Settings) -> tuple[ControlPlane, SQLiteStore]:
     return control, store
 
 
+def _write_private_exclusive(
+    path: Path,
+    data: bytes,
+    *,
+    creation_log: list[CreatedFile] | None = None,
+) -> FileIdentity:
+    descriptor = os.open(
+        path,
+        os.O_CREAT | os.O_EXCL | os.O_WRONLY | getattr(os, "O_CLOEXEC", 0),
+        0o600,
+    )
+    descriptor_stat = os.fstat(descriptor)
+    created = (path, (descriptor_stat.st_dev, descriptor_stat.st_ino))
+    try:
+        try:
+            remaining = memoryview(data)
+            while remaining:
+                written = os.write(descriptor, remaining)
+                if written < 1:
+                    raise OSError("private-file write made no progress")
+                remaining = remaining[written:]
+            os.fsync(descriptor)
+        finally:
+            os.close(descriptor)
+        current = os.lstat(path)
+        if (current.st_dev, current.st_ino) != created[1]:
+            raise OSError("private-file path changed while writing")
+        if creation_log is not None:
+            creation_log.append(created)
+        return created[1]
+    except BaseException:
+        unlink_created_file(created)
+        raise
+
+
 def command_init(args: argparse.Namespace) -> int:
     data_dir = Path(args.data_dir).expanduser().resolve()
     data_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
     keyring = data_dir / "receipt-keys.json"
-    tokens = data_dir / "api-tokens.json"
-    tokens = initialize_secrets(
-        keyring_path=keyring, token_path=tokens, tenant_id=args.tenant
-    )
-    initialize_keyring(data_dir / "backup-keys.json")
+    token_hashes = data_dir / "api-tokens.json"
+    backup_keyring = data_dir / "backup-keys.json"
     benchmark_key = data_dir / "benchmark-signing.key"
-    descriptor = os.open(
-        benchmark_key,
-        os.O_CREAT | os.O_EXCL | os.O_WRONLY,
-        0o600,
-    )
-    try:
-        os.write(descriptor, generate_hmac_key())
-        os.fsync(descriptor)
-    finally:
-        os.close(descriptor)
     benchmark_dir = data_dir / "benchmarks"
-    benchmark_dir.mkdir(mode=0o700)
     destination = benchmark_dir / "policy.json"
-    shutil.copyfile(SAMPLE_BENCHMARK, destination)
-    destination.chmod(0o600)
+    token_output = (
+        Path(args.token_output).expanduser().resolve()
+        if args.token_output
+        else data_dir / "bootstrap-tokens.json"
+    )
+    managed_paths = (
+        keyring,
+        token_hashes,
+        token_output,
+        backup_keyring,
+        benchmark_key,
+        benchmark_dir,
+        destination,
+    )
+    if len({path.resolve(strict=False) for path in managed_paths}) != len(
+        managed_paths
+    ):
+        raise ValueError("initialization paths must be distinct")
+    if benchmark_dir.resolve(strict=False) in token_output.resolve(
+        strict=False
+    ).parents:
+        raise ValueError("token output must not be inside the benchmark directory")
+    if any(path.exists() for path in managed_paths):
+        raise FileExistsError("refusing to overwrite an existing initialization path")
+
+    created_files: list[CreatedFile] = []
+    created_directories: list[tuple[Path, FileIdentity]] = []
+    try:
+        initialize_secrets(
+            keyring_path=keyring,
+            token_path=token_hashes,
+            plaintext_token_path=token_output,
+            tenant_id=args.tenant,
+            creation_log=created_files,
+        )
+        initialize_keyring(backup_keyring, creation_log=created_files)
+        _write_private_exclusive(
+            benchmark_key,
+            generate_hmac_key(),
+            creation_log=created_files,
+        )
+        benchmark_dir.mkdir(mode=0o700)
+        directory_stat = os.lstat(benchmark_dir)
+        created_directories.append(
+            (benchmark_dir, (directory_stat.st_dev, directory_stat.st_ino))
+        )
+        _write_private_exclusive(
+            destination,
+            SAMPLE_BENCHMARK.read_bytes(),
+            creation_log=created_files,
+        )
+    except BaseException:
+        for item in reversed(created_files):
+            unlink_created_file(item)
+        for path, expected in reversed(created_directories):
+            try:
+                current = os.lstat(path)
+                if stat.S_ISDIR(current.st_mode) and (
+                    current.st_dev,
+                    current.st_ino,
+                ) == expected:
+                    path.rmdir()
+            except OSError:
+                pass
+        raise
     print(json.dumps({
         "data_dir": str(data_dir),
         "tenant_id": args.tenant,
-        "api_tokens": tokens,
-        "warning": "The role-separated API tokens are shown once. Store them in a secret manager.",
+        "token_output": str(token_output),
+        "warning": (
+            "Move the one-time tokens from token_output to a secret manager, "
+            "then securely delete that file."
+        ),
         "benchmark_warning": "The installed benchmark is a public fixture. Replace it before production.",
     }, indent=2, sort_keys=True))
     return 0
@@ -413,6 +507,10 @@ def parser() -> argparse.ArgumentParser:
     init = commands.add_parser("init", help="create local key/token/benchmark files")
     init.add_argument("--data-dir", required=True)
     init.add_argument("--tenant", default="default")
+    init.add_argument(
+        "--token-output",
+        help="0600 file for one-time plaintext tokens (default: DATA_DIR/bootstrap-tokens.json)",
+    )
     init.set_defaults(handler=command_init)
     serve_command = commands.add_parser("serve", help="run the HTTP control plane")
     serve_command.set_defaults(handler=command_serve)
