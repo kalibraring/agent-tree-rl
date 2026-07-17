@@ -49,7 +49,8 @@ are separate trust boundaries.
 | Audit tampering | Delete adverse outcome | Current reference: append-only DB triggers and per-payload hashes. Production: previous-hash linkage, remote immutable export, restricted DB access, and backup verification. | Same-host root can alter local DB and logs. Remote WORM sink is required for strong nonrepudiation. |
 | Secret leakage | Token in logs or image | File secrets; digest-only API token store; redaction; `.dockerignore`; image/SBOM scans | Request bodies/tool output may contain secrets. Apply content filters and restricted log access. |
 | Malicious backup/restore | Restore altered champion pointer | Encrypt/sign backup manifest; checksums; isolated credentials; restore drill; post-restore invariants | Backup operator is privileged. Separate duties and log restores. |
-| Supply-chain compromise | Poisoned base image/package | Digest-pinned base image; hash-locked CI build dependencies; SBOM/provenance/signature; scan; reproducible build | Maintainers must deliberately refresh the pinned digest and hashes, review upstream changes, and prove the rebuilt image. |
+| Supply-chain compromise | Poisoned base image/package | Digest-pinned base image; hash-locked CI build dependencies; build artifacts handed off without rebuilding; SBOM/provenance/signature; scan | Maintainers must deliberately refresh the pinned digest and hashes, review upstream changes, and prove the rebuilt image. Bit-for-bit reproducible builds are not yet claimed. |
+| Container capability drift | Runtime gains unnecessary kernel privileges | Application drops all capabilities; proxy retains only `NET_BIND_SERVICE` required by the official Caddy file capability; non-root users; read-only roots; `no-new-privileges` | A proxy compromise retains the ability to bind low ports. Reassess or strip the upstream file capability when changing the proxy image. |
 | Proxy spoofing | Client sends fake forwarding headers | App never consumes forwarding headers; ingress overwrites them and supplies transport policy | Adding forwarding-header trust without an explicit proxy allowlist is prohibited. |
 | Availability failure | DB/disk/process outage | Health vs readiness; disk alerts; bounded restart; graceful stop; backup/restore; capacity headroom | Single-node reference has an outage during host failure. Meet stricter SLOs with tested HA datastore design. |
 
@@ -102,8 +103,10 @@ worker may sign the validated aggregate.
   allowed. Redact logs at source and set short, documented retention.
 - Local `init` writes one-time bootstrap tokens to an exclusive mode-`0600`
   file instead of stdout. Import it into a secret manager and securely delete it
-  immediately; production deployments must provision workload credentials
-  externally.
+  immediately. The bootstrap target directory must be exclusively controlled by
+  the same local administrator; concurrent same-UID path mutation is outside
+  this helper's trust boundary. Production deployments must provision workload
+  credentials externally.
 - Never label metrics with prompts, task IDs, raw tenant IDs, paths, model
   content hashes, or unbounded error strings.
 - Provide tenant export/deletion workflows that preserve only legally required,

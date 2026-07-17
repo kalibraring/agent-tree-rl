@@ -164,9 +164,10 @@ that is not PASS blocks production.
 
 - [ ] Application and proxy images are pinned by digest; CI emits verified SBOM,
       provenance/signature, license result, and vulnerability result.
-- [ ] Runtime is non-root, root filesystem read-only, all capabilities dropped,
-      `no-new-privileges`, bounded tmpfs, dedicated persistent data, process/CPU/
-      memory/file limits, and graceful termination.
+- [ ] Runtime is non-root, root filesystem read-only, the application drops all
+      capabilities, the proxy retains only a reviewed `NET_BIND_SERVICE`, and
+      both use `no-new-privileges`, bounded tmpfs, dedicated persistent data,
+      process/CPU/memory/file limits, and graceful termination.
 - [ ] Only proxy is reachable; application, metrics, readiness, DB, workers, and
       secret manager follow least-privilege network policy.
 - [ ] TLS, approved ciphers/policy, certificate rotation, workload identity,

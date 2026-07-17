@@ -36,6 +36,7 @@ from .process_registry import ActiveProcessRegistry
 from .secrets import (
     CreatedFile,
     FileIdentity,
+    file_identity,
     initialize_keyring,
     initialize_secrets,
     load_keyring,
@@ -141,28 +142,42 @@ def _write_private_exclusive(
         os.O_CREAT | os.O_EXCL | os.O_WRONLY | getattr(os, "O_CLOEXEC", 0),
         0o600,
     )
-    descriptor_stat = os.fstat(descriptor)
-    created = (path, (descriptor_stat.st_dev, descriptor_stat.st_ino))
+    created = (path, file_identity(os.fstat(descriptor)))
     try:
-        try:
-            remaining = memoryview(data)
-            while remaining:
-                written = os.write(descriptor, remaining)
-                if written < 1:
-                    raise OSError("private-file write made no progress")
-                remaining = remaining[written:]
-            os.fsync(descriptor)
-        finally:
-            os.close(descriptor)
-        current = os.lstat(path)
-        if (current.st_dev, current.st_ino) != created[1]:
+        remaining = memoryview(data)
+        while remaining:
+            written = os.write(descriptor, remaining)
+            if written < 1:
+                raise OSError("private-file write made no progress")
+            remaining = remaining[written:]
+        os.fsync(descriptor)
+        created = (path, file_identity(os.fstat(descriptor)))
+        if file_identity(os.lstat(path)) != created[1]:
             raise OSError("private-file path changed while writing")
-        if creation_log is not None:
-            creation_log.append(created)
-        return created[1]
-    except BaseException:
-        unlink_created_file(created)
+    except BaseException as error:
+        try:
+            created = (path, file_identity(os.fstat(descriptor)))
+            unlink_created_file(created)
+        except BaseException as cleanup_error:
+            error.add_note(f"private-file cleanup also failed: {cleanup_error!r}")
+        try:
+            os.close(descriptor)
+        except BaseException as close_error:
+            error.add_note(f"private-file descriptor close also failed: {close_error!r}")
         raise
+    try:
+        os.close(descriptor)
+    except BaseException as error:
+        try:
+            unlink_created_file(created)
+        except BaseException as cleanup_error:
+            error.add_note(
+                f"private-file rollback after close failure also failed: {cleanup_error!r}"
+            )
+        raise
+    if creation_log is not None:
+        creation_log.append(created)
+    return created[1]
 
 
 def command_init(args: argparse.Namespace) -> int:
@@ -200,7 +215,7 @@ def command_init(args: argparse.Namespace) -> int:
         raise FileExistsError("refusing to overwrite an existing initialization path")
 
     created_files: list[CreatedFile] = []
-    created_directories: list[tuple[Path, FileIdentity]] = []
+    created_directories: list[tuple[Path, FileIdentity, int | None]] = []
     try:
         initialize_secrets(
             keyring_path=keyring,
@@ -216,29 +231,68 @@ def command_init(args: argparse.Namespace) -> int:
             creation_log=created_files,
         )
         benchmark_dir.mkdir(mode=0o700)
-        directory_stat = os.lstat(benchmark_dir)
-        created_directories.append(
-            (benchmark_dir, (directory_stat.st_dev, directory_stat.st_ino))
+        try:
+            directory_identity = file_identity(os.lstat(benchmark_dir))
+        except BaseException:
+            try:
+                benchmark_dir.rmdir()
+            except OSError:
+                pass
+            raise
+        created_directories.append((benchmark_dir, directory_identity, None))
+        directory_descriptor = os.open(
+            benchmark_dir,
+            os.O_RDONLY
+            | getattr(os, "O_CLOEXEC", 0)
+            | getattr(os, "O_DIRECTORY", 0)
+            | getattr(os, "O_NOFOLLOW", 0),
+        )
+        created_directories[-1] = (
+            benchmark_dir,
+            directory_identity,
+            directory_descriptor,
         )
         _write_private_exclusive(
             destination,
             SAMPLE_BENCHMARK.read_bytes(),
             creation_log=created_files,
         )
-    except BaseException:
+    except BaseException as error:
         for item in reversed(created_files):
-            unlink_created_file(item)
-        for path, expected in reversed(created_directories):
+            try:
+                unlink_created_file(item)
+            except OSError as cleanup_error:
+                error.add_note(f"bootstrap file cleanup also failed: {cleanup_error!r}")
+        for path, fallback_identity, descriptor in reversed(created_directories):
             try:
                 current = os.lstat(path)
-                if stat.S_ISDIR(current.st_mode) and (
-                    current.st_dev,
-                    current.st_ino,
-                ) == expected:
+                expected = (
+                    file_identity(os.fstat(descriptor))
+                    if descriptor is not None
+                    else fallback_identity
+                )
+                if stat.S_ISDIR(current.st_mode) and file_identity(current) == expected:
                     path.rmdir()
             except OSError:
                 pass
+        for _, _, descriptor in created_directories:
+            if descriptor is not None:
+                try:
+                    os.close(descriptor)
+                except BaseException as close_error:
+                    error.add_note(
+                        f"bootstrap directory descriptor close also failed: {close_error!r}"
+                    )
         raise
+    for _, _, descriptor in created_directories:
+        if descriptor is not None:
+            try:
+                os.close(descriptor)
+            except OSError as error:
+                LOGGER.warning(
+                    "directory descriptor close failed after initialization committed: %s",
+                    error,
+                )
     print(json.dumps({
         "data_dir": str(data_dir),
         "tenant_id": args.tenant,

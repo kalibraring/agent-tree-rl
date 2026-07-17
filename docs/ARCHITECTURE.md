@@ -190,7 +190,9 @@ Suggested starting limits:
 - Root filesystem is read-only; `/data` is the only durable writable mount and
   `/tmp` is a bounded noexec tmpfs.
 - The application runs as UID/GID 10001 in containers or a systemd DynamicUser.
-- All Linux capabilities are dropped and `no-new-privileges` is set.
+- The application drops all Linux capabilities. The proxy retains only
+  `NET_BIND_SERVICE`, which the official Caddy binary requires as a file
+  capability, and both services set `no-new-privileges`.
 - API token digests and receipt keys enter through read-only files. They are not
   image layers, Compose environment values, logs, or command arguments.
 - A real deployment sources those files from KMS/secret-manager delivery and

@@ -13,22 +13,37 @@ import os
 from pathlib import Path
 import secrets
 import tempfile
-from typing import Mapping, TypeAlias
+from typing import Mapping, NamedTuple, TypeAlias
 
 from .config import ConfigurationError, _secure_json
 from .crypto import ReceiptSigner, ReceiptVerifier, generate_hmac_key
 
 
-FileIdentity: TypeAlias = tuple[int, int]
+class FileIdentity(NamedTuple):
+    """Filesystem identity captured from the file descriptor we created."""
+
+    device: int
+    inode: int
+    ctime_ns: int
+    mtime_ns: int
+    size: int
+
+
 CreatedFile: TypeAlias = tuple[Path, FileIdentity]
 
 
-def _stat_identity(value: os.stat_result) -> FileIdentity:
-    return value.st_dev, value.st_ino
+def file_identity(value: os.stat_result) -> FileIdentity:
+    return FileIdentity(
+        device=value.st_dev,
+        inode=value.st_ino,
+        ctime_ns=value.st_ctime_ns,
+        mtime_ns=value.st_mtime_ns,
+        size=value.st_size,
+    )
 
 
 def _path_identity(path: Path) -> FileIdentity:
-    return _stat_identity(os.lstat(path))
+    return file_identity(os.lstat(path))
 
 
 def unlink_created_file(created: CreatedFile) -> bool:
@@ -177,11 +192,15 @@ def _atomic_private_json(
 ) -> FileIdentity:
     path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
     descriptor, temp_name = tempfile.mkstemp(prefix=path.name + ".", dir=path.parent)
-    identity = _stat_identity(os.fstat(descriptor))
+    temp_path = Path(temp_name)
+    identity = file_identity(os.fstat(descriptor))
     try:
         os.fchmod(descriptor, 0o600)
         encoded = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
-        with os.fdopen(descriptor, "wb", closefd=True) as handle:
+        # Keep the descriptor open until publication or cleanup completes. An
+        # open descriptor prevents the kernel from recycling this inode while
+        # we decide whether a directory entry still belongs to us.
+        with os.fdopen(descriptor, "wb", closefd=False) as handle:
             handle.write(encoded)
             handle.flush()
             os.fsync(handle.fileno())
@@ -195,15 +214,38 @@ def _atomic_private_json(
             os.fsync(directory_fd)
         finally:
             os.close(directory_fd)
+        identity = file_identity(os.fstat(descriptor))
         if _path_identity(path) != identity:
             raise OSError("private-file path changed while publishing")
-        if creation_log is not None:
-            creation_log.append((path, identity))
-        return identity
-    except BaseException:
-        unlink_created_file((Path(temp_name), identity))
-        if not replace:
-            # Checking the inode, rather than a boolean set after os.link(),
-            # handles a signal delivered after the link syscall committed.
-            unlink_created_file((path, identity))
+    except BaseException as error:
+        try:
+            identity = file_identity(os.fstat(descriptor))
+            if not replace:
+                # Checking the open descriptor handles a signal delivered after
+                # the link syscall committed but before it returned to Python.
+                unlink_created_file((path, identity))
+                identity = file_identity(os.fstat(descriptor))
+            unlink_created_file((temp_path, identity))
+        except BaseException as cleanup_error:
+            error.add_note(f"private-file cleanup also failed: {cleanup_error!r}")
+        try:
+            os.close(descriptor)
+        except BaseException as close_error:
+            error.add_note(f"private-file descriptor close also failed: {close_error!r}")
         raise
+    try:
+        os.close(descriptor)
+    except BaseException as error:
+        if not replace:
+            try:
+                unlink_created_file((path, identity))
+            except BaseException as cleanup_error:
+                error.add_note(
+                    f"private-file rollback after close failure also failed: {cleanup_error!r}"
+                )
+        else:
+            error.add_note("replacement publication completed before close failed")
+        raise
+    if creation_log is not None:
+        creation_log.append((path, identity))
+    return identity

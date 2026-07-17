@@ -200,6 +200,28 @@ class SecureSecretFileTests(unittest.TestCase):
 
             self.assertEqual([], list(root.iterdir()))
 
+    def test_keyring_close_failure_rolls_back_published_secret(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            real_close = os.close
+            close_calls = 0
+
+            def close_then_fail_on_created_file(descriptor: int) -> None:
+                nonlocal close_calls
+                close_calls += 1
+                real_close(descriptor)
+                if close_calls == 2:
+                    raise OSError("simulated creation descriptor close failure")
+
+            with mock.patch(
+                "agent_tree_rl.secrets.os.close",
+                side_effect=close_then_fail_on_created_file,
+            ):
+                with self.assertRaisesRegex(OSError, "creation descriptor"):
+                    initialize_keyring(root / "receipt-keys.json")
+
+            self.assertEqual([], list(root.iterdir()))
+
     def test_private_write_cleanup_preserves_a_substituted_path(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "secret.key"
@@ -220,6 +242,24 @@ class SecureSecretFileTests(unittest.TestCase):
 
             self.assertEqual("replacement", path.read_text(encoding="utf-8"))
 
+    def test_private_write_close_failure_rolls_back_created_file(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "secret.key"
+            real_close = os.close
+
+            def close_then_fail(descriptor: int) -> None:
+                real_close(descriptor)
+                raise OSError("simulated private descriptor close failure")
+
+            with mock.patch(
+                "agent_tree_rl.cli.os.close",
+                side_effect=close_then_fail,
+            ):
+                with self.assertRaisesRegex(OSError, "private descriptor"):
+                    cli_module._write_private_exclusive(path, b"sensitive")
+
+            self.assertFalse(path.exists())
+
     def test_bootstrap_cleanup_preserves_a_substituted_path(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -233,8 +273,8 @@ class SecureSecretFileTests(unittest.TestCase):
                 payload: dict[str, object],
                 *,
                 replace: bool = True,
-                creation_log: list[tuple[Path, tuple[int, int]]] | None = None,
-            ) -> tuple[int, int]:
+                creation_log: list[secrets_module.CreatedFile] | None = None,
+            ) -> secrets_module.FileIdentity:
                 if path == plaintext:
                     keyring.unlink()
                     keyring.write_text("replacement", encoding="utf-8")
@@ -284,7 +324,7 @@ class SecureSecretFileTests(unittest.TestCase):
                 path: Path,
                 data: bytes,
                 *,
-                creation_log: list[tuple[Path, tuple[int, int]]] | None = None,
+                creation_log: list[secrets_module.CreatedFile] | None = None,
             ) -> None:
                 if path.name == "policy.json":
                     raise OSError("simulated sample write failure")
@@ -305,6 +345,99 @@ class SecureSecretFileTests(unittest.TestCase):
 
             self.assertEqual([], list(root.iterdir()))
 
+    def test_init_rollback_removes_a_created_directory_after_it_changed(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory) / "data"
+            real_write = cli_module._write_private_exclusive
+
+            def fail_after_directory_change(
+                path: Path,
+                data: bytes,
+                *,
+                creation_log: list[secrets_module.CreatedFile] | None = None,
+            ) -> None:
+                if path.name == "policy.json":
+                    path.write_bytes(b"partial")
+                    path.unlink()
+                    raise OSError("simulated post-create failure")
+                real_write(path, data, creation_log=creation_log)
+
+            with mock.patch(
+                "agent_tree_rl.cli._write_private_exclusive",
+                side_effect=fail_after_directory_change,
+            ):
+                with self.assertRaisesRegex(OSError, "post-create"):
+                    command_init(
+                        argparse.Namespace(
+                            data_dir=str(root),
+                            tenant="tenant-a",
+                            token_output=None,
+                        )
+                    )
+
+            self.assertEqual([], list(root.iterdir()))
+
+    def test_init_rollback_removes_directory_when_opening_it_fails(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory) / "data"
+            benchmark_dir = root.resolve() / "benchmarks"
+            real_open = os.open
+
+            def fail_benchmark_directory_open(
+                path: os.PathLike[str] | str,
+                flags: int,
+                *args: object,
+                **kwargs: object,
+            ) -> int:
+                if Path(path) == benchmark_dir:
+                    raise OSError("simulated directory open failure")
+                return real_open(path, flags, *args, **kwargs)
+
+            with mock.patch(
+                "agent_tree_rl.cli.os.open",
+                side_effect=fail_benchmark_directory_open,
+            ):
+                with self.assertRaisesRegex(OSError, "directory open"):
+                    command_init(
+                        argparse.Namespace(
+                            data_dir=str(root),
+                            tenant="tenant-a",
+                            token_output=None,
+                        )
+                    )
+
+            self.assertEqual([], list(root.iterdir()))
+
+    def test_init_rollback_removes_directory_when_identity_read_fails(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory) / "data"
+            benchmark_dir = root.resolve() / "benchmarks"
+            real_lstat = os.lstat
+
+            def fail_benchmark_directory_identity(
+                path: os.PathLike[str] | str,
+                *args: object,
+                **kwargs: object,
+            ) -> os.stat_result:
+                if Path(path) == benchmark_dir:
+                    raise OSError("simulated directory identity failure")
+                return real_lstat(path, *args, **kwargs)
+
+            with mock.patch(
+                "agent_tree_rl.cli.os.lstat",
+                side_effect=fail_benchmark_directory_identity,
+            ):
+                with self.assertRaisesRegex(OSError, "directory identity"):
+                    command_init(
+                        argparse.Namespace(
+                            data_dir=str(root),
+                            tenant="tenant-a",
+                            token_output=None,
+                        )
+                    )
+
+            self.assertEqual([], list(root.iterdir()))
+
     def test_init_rolls_back_files_when_interrupted_late(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory) / "data"
@@ -314,7 +447,7 @@ class SecureSecretFileTests(unittest.TestCase):
                 path: Path,
                 data: bytes,
                 *,
-                creation_log: list[tuple[Path, tuple[int, int]]] | None = None,
+                creation_log: list[secrets_module.CreatedFile] | None = None,
             ) -> None:
                 if path.name == "policy.json":
                     raise KeyboardInterrupt
