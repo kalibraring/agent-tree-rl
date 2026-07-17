@@ -240,4 +240,5 @@ jobs:
           --target "${{ needs.build.outputs.release-commit }}"
           --title "Agent Tree RL ${GITHUB_REF_NAME}"
           --generate-notes
+          --prerelease="${{ startsWith(github.ref_name, 'v0.') }}"
           --verify-tag

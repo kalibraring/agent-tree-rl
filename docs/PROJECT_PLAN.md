@@ -56,7 +56,7 @@ they do not fork controller logic.
 
 ### Maintainer operations
 
-- [ ] Protect `main`; require CI, review, resolved conversations, and linear
+- [x] Protect `main`; require CI, review, resolved conversations, and linear
   history.
 - [x] Enable private vulnerability reporting and GitHub Discussions.
 - [x] Enable GitHub secret scanning, push protection, Dependabot alerts, and
@@ -64,7 +64,7 @@ they do not fork controller logic.
 - [x] Add OpenSSF Scorecard and CodeQL after the public repository exists.
 - [x] Generate an SPDX SBOM, checksums, and artifact provenance in the release
   workflow.
-- [ ] Publish the first immutable release and verify every downloaded asset and
+- [x] Publish the first immutable release and verify every downloaded asset and
   attestation independently.
 - [ ] Publish a supported-version and release cadence decision after external use.
 - [ ] Recruit a second maintainer or document an archive/succession trigger.
@@ -76,10 +76,10 @@ they do not fork controller logic.
 - [x] Source archive installs and runs in a clean environment.
 - [x] Working tree and complete history pass Gitleaks plus the project scanner;
   repeat on the final staged index and public clone.
-- [ ] Git archive, wheel, source archive, and application files in the container
+- [x] Git archive, wheel, source archive, and application files in the container
   image contain no private paths, emails, credentials, generated state, or
   hidden benchmark material.
-- [ ] A fresh public clone passes the one-minute demo and full release preflight.
+- [x] A fresh public clone passes the one-minute demo and full release preflight.
 - [ ] One external user completes the quickstart without maintainer assistance.
 
 ## Good product checklist
