@@ -64,12 +64,14 @@ waiting for the model owner.
    deliberately failing promotion, then exercise canary and rollback in staging.
 8. Take and restore a staging backup before accepting production traffic.
 
-`init` is for a new local evaluation directory only. It generates one-time local
-tokens, keys, and the public sample benchmark, and refuses existing receipt/token
-files. Never run it after production secrets are delivered. `verify` checks
-controller/repository controls on disposable local state; it cannot attest cloud
-IAM, ingress, backup, signing-worker independence, or the quality/secrecy of real
-benchmarks.
+`init` is for a new local evaluation directory only. It writes one-time local
+tokens to a mode-`0600` `bootstrap-tokens.json`, creates keys and the public
+sample benchmark, and refuses existing receipt/token/output files. Move the
+plaintext tokens to a secret manager and securely delete the bootstrap file;
+they are never printed to stdout. Never run `init` after production secrets are
+delivered. `verify` checks controller/repository controls on disposable local
+state; it cannot attest cloud IAM, ingress, backup, signing-worker independence,
+or the quality/secrecy of real benchmarks.
 
 The receipt keyring JSON has this versioned operational shape:
 

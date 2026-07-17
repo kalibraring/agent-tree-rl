@@ -6,7 +6,7 @@ services:
       context: ..
       dockerfile: deploy/Dockerfile
       args:
-        PYTHON_IMAGE: ${PYTHON_IMAGE:-python:3.12.10-slim-bookworm}
+        PYTHON_IMAGE: ${PYTHON_IMAGE:-python:3.12.13-slim-bookworm@sha256:d50fb7611f86d04a3b0471b46d7557818d88983fc3136726336b2a4c657aa30b}
     image: ${AGENT_TREE_RL_IMAGE:-agent-tree-rl:local}
     init: true
     restart: unless-stopped
@@ -102,12 +102,17 @@ services:
         max-file: "5"
 
   caddy:
-    image: ${CADDY_IMAGE:-caddy:2.8.4-alpine}
+    image: ${CADDY_IMAGE:-caddy:2.11.4-alpine@sha256:5f5c8640aae01df9654968d946d8f1a56c497f1dd5c5cda4cf95ab7c14d58648}
     restart: unless-stopped
     user: "1000:1000"
     read_only: true
     cap_drop:
       - ALL
+    # The official Caddy binary carries cap_net_bind_service as a file
+    # capability. Keep only that capability in the bounding set so Linux can
+    # execute the binary; the configured listener itself remains on port 8080.
+    cap_add:
+      - NET_BIND_SERVICE
     security_opt:
       - no-new-privileges:true
     pids_limit: 128

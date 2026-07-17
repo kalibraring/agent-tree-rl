@@ -4,6 +4,7 @@ include CODE_OF_CONDUCT.md
 include CONTRIBUTING.md
 include GOVERNANCE.md
 include ROADMAP.md
+include requirements-build-ci.txt
 include SECURITY.md
 include SUPPORT.md
 include .dockerignore

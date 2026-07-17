@@ -210,12 +210,12 @@ class StoreTests(unittest.TestCase):
         self.assertEqual(("ok",), self.store.integrity_check())
         self.store.close()
 
-        self.store = SQLiteStore(self.path, clock=self.clock)
-        self.assertEqual(1, self.store.schema_version())
-        versions = self.store._connection.execute(
-            "SELECT version FROM schema_migrations"
-        ).fetchall()
-        self.assertEqual([1], [row[0] for row in versions])
+        with SQLiteStore(self.path, clock=self.clock) as reopened:
+            self.assertEqual(1, reopened.schema_version())
+            versions = reopened._connection.execute(
+                "SELECT version FROM schema_migrations"
+            ).fetchall()
+            self.assertEqual([1], [row[0] for row in versions])
 
     def test_events_are_tenant_scoped_versioned_and_append_only(self) -> None:
         first = self.store.append_event(

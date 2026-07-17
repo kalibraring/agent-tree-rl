@@ -41,17 +41,20 @@ python3 --version
 python3 -m agent_tree_rl.cli init --data-dir "$PWD/var" --tenant demo
 ```
 
-`init` prints four one-time bearer tokens:
+`init` creates `var/bootstrap-tokens.json` with mode `0600` instead of printing
+secrets into terminal or CI logs. The file contains four one-time bearer tokens:
 
 - `agent` runs decisions and trains challengers.
 - `operator` runs approved evidence commands and reads audit events.
 - `promoter` evaluates, promotes, and rolls back policies.
 - `auditor` reads champions and audit events.
 
-Copy the tokens to a local secret store while they are visible. The generated
-`api-tokens.json` contains only token hashes, so the plaintext tokens cannot be
-recovered later. `init` refuses to overwrite an existing setup; run it only
-once for a data directory.
+Move the tokens to a local secret store, then securely delete
+`var/bootstrap-tokens.json`. The generated `api-tokens.json` contains only token
+hashes, so the plaintext tokens cannot be recovered from the service files
+later. `init` refuses to overwrite an existing setup or token-output file; run
+it only once for a data directory. Use `--token-output /secure/path/tokens.json`
+when the secret destination should live elsewhere.
 
 ## 2. Configure the local service
 

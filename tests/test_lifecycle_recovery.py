@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 import signal
 import socket
+import stat
 import subprocess
 import sys
 import tempfile
@@ -493,7 +494,12 @@ class CLISignalIntegrationTests(unittest.TestCase):
                 text=True,
             )
             self.assertEqual(0, initialized.returncode, initialized.stderr)
-            operator_token = json.loads(initialized.stdout)["api_tokens"]["operator"]
+            initialization = json.loads(initialized.stdout)
+            token_output = Path(initialization["token_output"])
+            self.assertEqual(0o600, stat.S_IMODE(token_output.stat().st_mode))
+            plaintext_tokens = json.loads(token_output.read_text(encoding="utf-8"))
+            operator_token = plaintext_tokens["api_tokens"]["operator"]
+            self.assertNotIn(operator_token, initialized.stdout)
 
             environment = os.environ.copy()
             environment.update(

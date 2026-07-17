@@ -4,6 +4,7 @@ set -euo pipefail
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 TEMP_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/agent-tree-rl-release.XXXXXX")"
 PYTHON="${PYTHON:-python3}"
+OUTPUT_DIR="${OUTPUT_DIR:-$TEMP_ROOT/dist}"
 
 cleanup() {
   rm -rf "$TEMP_ROOT" "$PROJECT_ROOT/agent_tree_rl.egg-info" "$PROJECT_ROOT/build"
@@ -11,17 +12,28 @@ cleanup() {
 trap cleanup EXIT
 
 cd "$PROJECT_ROOT"
+mkdir -p "$OUTPUT_DIR"
+OUTPUT_DIR="$(cd "$OUTPUT_DIR" && pwd)"
+shopt -s nullglob dotglob
+EXISTING_OUTPUT=("$OUTPUT_DIR"/*)
+shopt -u dotglob
+if [[ ${#EXISTING_OUTPUT[@]} -ne 0 ]]; then
+  echo "release output directory must be empty: $OUTPUT_DIR" >&2
+  exit 1
+fi
 if ! "$PYTHON" -c "import build, ruff, setuptools, wheel" 2>/dev/null; then
   echo "release tooling is missing; install the pinned dev extra: pip install -e '.[dev]'" >&2
   exit 1
 fi
+"$PYTHON" scripts/check_build_lock.py
+"$PYTHON" scripts/check_deployment_pins.py
 "$PYTHON" -m ruff check --no-cache agent_tree_rl tests scripts examples
 PYTHONDONTWRITEBYTECODE=1 "$PYTHON" -m unittest discover -s tests -v
 PYTHONDONTWRITEBYTECODE=1 "$PYTHON" -m agent_tree_rl.cli verify
-"$PYTHON" -m build --no-isolation --outdir "$TEMP_ROOT/dist"
+"$PYTHON" -m build --no-isolation --outdir "$OUTPUT_DIR"
 
-WHEEL=("$TEMP_ROOT"/dist/agent_tree_rl-*.whl)
-SDIST=("$TEMP_ROOT"/dist/agent_tree_rl-*.tar.gz)
+WHEEL=("$OUTPUT_DIR"/agent_tree_rl-*.whl)
+SDIST=("$OUTPUT_DIR"/agent_tree_rl-*.tar.gz)
 if [[ ${#WHEEL[@]} -ne 1 || ! -f "${WHEEL[0]}" ]]; then
   echo "expected exactly one wheel" >&2
   exit 1
@@ -34,11 +46,16 @@ fi
 mkdir -p "$TEMP_ROOT/wheel-scan" "$TEMP_ROOT/sdist-scan"
 "$PYTHON" -m zipfile -e "${WHEEL[0]}" "$TEMP_ROOT/wheel-scan"
 "$PYTHON" -m tarfile --filter data -e "${SDIST[0]}" "$TEMP_ROOT/sdist-scan"
+SDIST_ROOTS=("$TEMP_ROOT"/sdist-scan/*)
+if [[ ${#SDIST_ROOTS[@]} -ne 1 || ! -d "${SDIST_ROOTS[0]}" ]]; then
+  echo "expected one extracted source-distribution root" >&2
+  exit 1
+fi
 PYTHONDONTWRITEBYTECODE=1 "$PYTHON" scripts/check_public_release.py \
   --root "$TEMP_ROOT/wheel-scan" \
   --skip-git-history
 PYTHONDONTWRITEBYTECODE=1 "$PYTHON" scripts/check_public_release.py \
-  --root "$TEMP_ROOT/sdist-scan/agent_tree_rl-0.1.0" \
+  --root "${SDIST_ROOTS[0]}" \
   --skip-git-history \
   --allow-sdist-metadata
 

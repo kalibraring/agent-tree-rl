@@ -20,6 +20,7 @@ data
 backups
 deploy/secrets
 secrets
+bootstrap-tokens.json
 *.db
 *.db-*
 *.sqlite

@@ -33,7 +33,10 @@ python3 -m pip install -e ".[dev]"
 python3 -m build --no-isolation
 ```
 
-The release workflow independently validates archive members and wheel metadata.
+The release workflow independently validates archive members and wheel metadata,
+generates and inspects an SPDX SBOM from the exact wheel, writes SHA-256
+checksums, and records signed build-provenance attestations before the publish
+job receives write access.
 
 Inspect archive members and extracted strings. Reject generated state, databases,
 backups, local paths, emails, credentials, hidden benchmark data, and unexpected
@@ -60,8 +63,10 @@ git tag -a v0.1.0 -m "Agent Tree RL v0.1.0"
 git push origin v0.1.0
 ```
 
-The release workflow rebuilds the wheel and source archive and attaches them to
-a GitHub release. It does not publish to PyPI.
+The release workflow builds the wheel and source archive once, proves those exact
+files, and attaches them, the SPDX SBOM, and `SHA256SUMS` to a GitHub release. It
+does not publish to PyPI. Verify provenance with
+`gh attestation verify ARTIFACT --repo kalibraring/agent-tree-rl`.
 
 ## 4. Verify the public surface
 

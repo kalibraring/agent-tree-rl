@@ -130,13 +130,15 @@ class CoreProductionTests(unittest.TestCase):
     def test_public_evidence_allowlist_rejects_general_interpreters(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
+            interpreter = root / "python3"
+            interpreter.touch(mode=0o755)
             with self.assertRaisesRegex(ConfigurationError, "forbidden"):
                 Settings.from_env(
                     {
                         "AGENT_TREE_RL_DATA_DIR": str(root),
                         "AGENT_TREE_RL_HOST": "127.0.0.1",
                         "AGENT_TREE_RL_REQUIRE_AUTH": "false",
-                        "AGENT_TREE_RL_ALLOWED_COMMANDS": "/usr/bin/python3",
+                        "AGENT_TREE_RL_ALLOWED_COMMANDS": str(interpreter),
                     }
                 )
 
