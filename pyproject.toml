@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools==83.0.0"]
+requires = ["setuptools==84.0.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -36,10 +36,10 @@ dependencies = []
 
 [project.optional-dependencies]
 dev = [
-  "build==1.5.0",
-  "ruff==0.15.22",
-  "setuptools==83.0.0",
-  "wheel==0.47.0",
+  "build==1.6.1",
+  "ruff==0.16.9",
+  "setuptools==84.0.0",
+  "wheel==0.48.0",
 ]
 
 [project.urls]
